@@ -3,7 +3,7 @@ const path = require("path");
 const axios = require("axios");
 const FormData = require("form-data");
 
-const API = "https://YOUR-RAILWAY-URL";
+const API = "https://garden-horions-api-production.up.railway.app";
 
 const BASE = "./local_assets/garden_horizons";
 
