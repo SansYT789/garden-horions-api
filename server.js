@@ -4,7 +4,7 @@ const path = require("path")
 
 const app = express()
 
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 8080
 
 const ASSET_DIR = path.resolve(__dirname, "assets")
 const CACHE_FILE = path.resolve(__dirname, "cache/images.json")
@@ -25,55 +25,72 @@ function loadCache() {
     }
 }
 
+function findMatches(query) {
+    const matches = []
+    for (const [folder, files] of Object.entries(imageCache)) {
+        for (const file of files) {
+            const baseName = path.parse(file).name.toLowerCase()
+            const q = query.toLowerCase()
+            if (baseName.includes(q) || q.includes(baseName)) {
+                const resolved = path.resolve(ASSET_DIR, folder, file)
+                if (resolved.startsWith(ASSET_DIR + path.sep)) {
+                    matches.push(resolved)
+                }
+            }
+        }
+    }
+    return matches
+}
+
+function pickRandom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)]
+}
+
 loadCache()
 
 app.get("/", (req, res) => {
-    res.send("Image API running")
+    res.send("API running")
 })
 
 app.get("/images", (req, res) => {
-    res.json(imageCache)
+    const stripped = {}
+    for (const [folder, files] of Object.entries(imageCache)) {
+        stripped[folder] = files.map(f => path.parse(f).name)
+    }
+    res.json(stripped)
 })
 
 app.get("/debug/*", (req, res) => {
-    const filePath = req.params[0]
-    const fullPath = path.resolve(ASSET_DIR, filePath)
+    const query = req.path.slice("/debug/".length)
+    const fullPath = path.resolve(ASSET_DIR, query)
+    const directExists = fullPath.startsWith(ASSET_DIR + path.sep) && fs.existsSync(fullPath)
+    const matches = findMatches(query)
+
     res.json({
-        received: filePath,
+        query,
         resolved: fullPath,
         assetDir: ASSET_DIR,
-        exists: fs.existsSync(fullPath)
+        directExists,
+        fuzzyMatches: matches,
+        wouldServe: directExists ? fullPath : (matches.length > 0 ? pickRandom(matches) : null)
     })
 })
 
 app.get("/get/*", (req, res) => {
-    const filePath = req.path.slice("/get/".length)
-    const fullPath = path.resolve(ASSET_DIR, filePath)
+    const query = req.path.slice("/get/".length)
+    const fullPath = path.resolve(ASSET_DIR, query)
 
     if (fullPath.startsWith(ASSET_DIR + path.sep) && fs.existsSync(fullPath)) {
         return res.sendFile(fullPath)
     }
 
-    const matches = []
-    for (const [folder, files] of Object.entries(imageCache)) {
-        for (const file of files) {
-            const baseName = path.parse(file).name
-            if (baseName.includes(filePath) || filePath.includes(baseName)) {
-                matches.push(path.resolve(ASSET_DIR, folder, file))
-            }
-        }
-    }
+    const matches = findMatches(query)
 
     if (matches.length === 0) {
         return res.status(404).send("Not found")
     }
 
-    const picked = matches[Math.floor(Math.random() * matches.length)]
-    if (!picked.startsWith(ASSET_DIR + path.sep)) {
-        return res.status(403).send("Forbidden")
-    }
-
-    res.sendFile(picked)
+    res.sendFile(pickRandom(matches))
 })
 
 app.get("/reload", (req, res) => {
