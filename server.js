@@ -35,8 +35,19 @@ app.get("/images", (req, res) => {
     res.json(imageCache)
 })
 
-app.get("/get/*", (req, res) => {
+app.get("/debug/*", (req, res) => {
     const filePath = req.params[0]
+    const fullPath = path.resolve(ASSET_DIR, filePath)
+    res.json({
+        received: filePath,
+        resolved: fullPath,
+        assetDir: ASSET_DIR,
+        exists: fs.existsSync(fullPath)
+    })
+})
+
+app.get("/get/*", (req, res) => {
+    const filePath = req.path.slice("/get/".length)
 
     // Resolve the full path and confirm it stays inside ASSET_DIR
     const fullPath = path.resolve(ASSET_DIR, filePath)
