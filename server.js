@@ -48,19 +48,25 @@ app.get("/debug/*", (req, res) => {
 
 app.get("/get/*", (req, res) => {
     const filePath = req.path.slice("/get/".length)
-
-    // Resolve the full path and confirm it stays inside ASSET_DIR
     const fullPath = path.resolve(ASSET_DIR, filePath)
 
-    if (!fullPath.startsWith(ASSET_DIR + path.sep)) {
-        return res.status(403).send("Forbidden")
+    // Direct path — works as before
+    if (fullPath.startsWith(ASSET_DIR + path.sep) && fs.existsSync(fullPath)) {
+        return res.sendFile(fullPath)
     }
 
-    if (!fs.existsSync(fullPath)) {
-        return res.status(404).send("Not found")
+    // Fuzzy lookup — search cache for a file matching the name (with any extension)
+    for (const [folder, files] of Object.entries(imageCache)) {
+        const match = files.find(f => f === filePath || f.startsWith(filePath + "."))
+        if (match) {
+            const resolvedPath = path.resolve(ASSET_DIR, folder, match)
+            if (resolvedPath.startsWith(ASSET_DIR + path.sep)) {
+                return res.sendFile(resolvedPath)
+            }
+        }
     }
 
-    res.sendFile(fullPath)
+    res.status(404).send("Not found")
 })
 
 app.get("/reload", (req, res) => {
