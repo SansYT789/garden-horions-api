@@ -1,16 +1,12 @@
 {
-  "name": "garden-assets",
+  "name": "image-api",
   "version": "1.0.0",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "sync": "node sync.js"
+    "scan": "node scripts/generateImages.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "form-data": "^4.0.0",
-    "fs-extra": "^11.2.0",
-    "multer": "1.4.5-lts.1"
+    "express": "^4.18.2"
   }
 }
