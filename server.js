@@ -5,47 +5,49 @@ const cors = require("cors");
 const path = require("path");
 
 const app = express();
+
 app.use(cors());
 
-const upload = multer({ dest: "temp/" });
+const upload = multer({ dest:"temp/" });
 
-const STORAGE = "uploads";
+const STORAGE="uploads";
 
 fs.ensureDirSync(STORAGE);
 
-// clear server
-app.post("/clear", async (req, res) => {
+app.post("/upload", upload.array("files"), async (req,res)=>{
 
-  await fs.emptyDir(STORAGE);
+ for(const file of req.files){
 
-  res.json({
-    status: "server cleared"
-  });
+   const dest = path.join(STORAGE,file.originalname);
+
+   await fs.ensureDir(path.dirname(dest));
+
+   await fs.move(file.path,dest,{overwrite:true});
+
+ }
+
+ res.json({status:"ok"});
+});
+
+app.post("/delete", async (req,res)=>{
+
+ const file=req.query.file;
+
+ await fs.remove(path.join(STORAGE,file));
+
+ res.json({deleted:file});
 
 });
 
-// upload files
-app.post("/upload", upload.array("files"), async (req, res) => {
+app.use("/files", express.static(STORAGE,{
+ maxAge:"365d",
+ etag:true
+}));
 
-  for (const file of req.files) {
+const port=process.env.PORT||3000;
 
-    const dest = path.join(STORAGE, file.originalname);
+app.listen(port,()=>{
 
-    await fs.move(file.path, dest, { overwrite: true });
+ console.log("Server running "+port);
 
-  }
-
-  res.json({
-    status: "uploaded",
-    count: req.files.length
-  });
-
-});
-
-app.use("/files", express.static(STORAGE));
-
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running " + PORT);
 });
