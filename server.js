@@ -6,57 +6,57 @@ const app = express()
 
 const PORT = process.env.PORT || 3000
 
-const ASSET_DIR = path.join(__dirname,"assets")
-const CACHE_FILE = path.join(__dirname,"cache/images.json")
+const ASSET_DIR = path.resolve(__dirname, "assets")
+const CACHE_FILE = path.resolve(__dirname, "cache/images.json")
 
 let imageCache = {}
 
-function loadCache(){
-    try{
-        if(fs.existsSync(CACHE_FILE)){
-            imageCache = JSON.parse(fs.readFileSync(CACHE_FILE,"utf8"))
-        }else{
-            console.log("images.json not found")
+function loadCache() {
+    try {
+        if (fs.existsSync(CACHE_FILE)) {
+            imageCache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"))
+        } else {
+            console.log("images.json not found — run `npm run scan` to generate it")
             imageCache = {}
         }
-    }catch(e){
-        console.log("cache error:",e)
+    } catch (e) {
+        console.error("Cache load error:", e)
         imageCache = {}
     }
 }
 
 loadCache()
 
-app.get("/",(req,res)=>{
+app.get("/", (req, res) => {
     res.send("Image API running")
 })
 
-app.get("/images",(req,res)=>{
+app.get("/images", (req, res) => {
     res.json(imageCache)
 })
 
-app.get("/get/*",(req,res)=>{
-
+app.get("/get/*", (req, res) => {
     const filePath = req.params[0]
 
-    const fullPath = path.join(ASSET_DIR,filePath)
+    // Resolve the full path and confirm it stays inside ASSET_DIR
+    const fullPath = path.resolve(ASSET_DIR, filePath)
 
-    if(!fullPath.startsWith(ASSET_DIR)){
-        return res.status(403).send("forbidden")
+    if (!fullPath.startsWith(ASSET_DIR + path.sep)) {
+        return res.status(403).send("Forbidden")
     }
 
-    if(!fs.existsSync(fullPath)){
-        return res.status(404).send("not found")
+    if (!fs.existsSync(fullPath)) {
+        return res.status(404).send("Not found")
     }
 
     res.sendFile(fullPath)
 })
 
-app.get("/reload",(req,res)=>{
+app.get("/reload", (req, res) => {
     loadCache()
-    res.send("cache reloaded")
+    res.send("Cache reloaded")
 })
 
-app.listen(PORT,"0.0.0.0",()=>{
-    console.log("Server running on port",PORT)
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`)
 })
