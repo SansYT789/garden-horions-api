@@ -1,129 +1,154 @@
-const fs=require("fs");
-const path=require("path");
-const crypto=require("crypto");
-const axios=require("axios");
-const FormData=require("form-data");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const axios = require("axios");
+const FormData = require("form-data");
 
-const API="https://garden-horions-api-production.up.railway.app";
+const API = "https://garden-horions-api-production.up.railway.app";
 
-const BASE="./assets/garden_horizons";
+const BASE = "./assets/garden_horizons";
 
-const folders=["gear","plant","weather"];
+const folders = ["gear", "plant", "weather"];
 
-const HASH_FILE="hash.json";
+const HASH_FILE = "hash.json";
 
-function md5(file){
-
- const data=fs.readFileSync(file);
-
- return crypto.createHash("md5").update(data).digest("hex");
-
+function md5(file) {
+  const data = fs.readFileSync(file);
+  return crypto.createHash("md5").update(data).digest("hex");
 }
 
-let oldHash={};
+// Đệ quy lấy tất cả file trong folder (kể cả subfolder)
+function getAllFiles(dir, baseDir = dir) {
+  const results = [];
+  const entries = fs.readdirSync(dir);
 
-if(fs.existsSync(HASH_FILE))
- oldHash=JSON.parse(fs.readFileSync(HASH_FILE));
+  for (const entry of entries) {
+    const full = path.join(dir, entry);
+    const stat = fs.statSync(full);
 
-let newHash={};
+    if (stat.isDirectory()) {
+      // Đệ quy vào subfolder
+      results.push(...getAllFiles(full, baseDir));
+    } else if (stat.isFile()) {
+      results.push(full);
+    }
+  }
 
-let uploadList=[];
-let deleteList=[];
-
-folders.forEach(folder=>{
-
- const dir=path.join(BASE,folder);
-
- const files=fs.readdirSync(dir);
-
- files.forEach(file=>{
-
-   const full=path.join(dir,file);
-
-   const hash=md5(full);
-
-   const key=folder+"/"+file;
-
-   newHash[key]=hash;
-
-   if(oldHash[key]!==hash){
-
-    uploadList.push(full);
-
-   }
-
- });
-
-});
-
-Object.keys(oldHash).forEach(file=>{
-
- if(!newHash[file]){
-
-  deleteList.push(file);
-
- }
-
-});
-
-async function run(){
-
- console.log("upload:",uploadList.length);
- console.log("delete:",deleteList.length);
-
- for(const file of deleteList){
-
-  await axios.post(API+"/delete?file="+file);
-
- }
-
- const form=new FormData();
-
- uploadList.forEach(file=>{
-
-  const rel=file.split("garden_horizons/")[1];
-
-  form.append("files",fs.createReadStream(file),rel);
-
- });
-
- if(uploadList.length>0){
-
- await axios.post(API+"/upload",form,{
-  headers:form.getHeaders(),
-  maxBodyLength:Infinity
- });
-
- }
-
- fs.writeFileSync(HASH_FILE,JSON.stringify(newHash,null,2));
-
- generateJSON();
-
- console.log("sync done");
-
+  return results;
 }
 
-function generateJSON(){
+let oldHash = {};
 
- const result={};
+if (fs.existsSync(HASH_FILE)) {
+  try {
+    oldHash = JSON.parse(fs.readFileSync(HASH_FILE));
+  } catch (e) {
+    console.warn("Warning: Could not parse hash file, starting fresh.");
+    oldHash = {};
+  }
+}
 
- folders.forEach(folder=>{
+let newHash = {};
+let uploadList = [];
+let deleteList = [];
 
-   result[folder]=[];
+folders.forEach(folder => {
+  const dir = path.join(BASE, folder);
 
- });
+  if (!fs.existsSync(dir)) {
+    console.warn("Warning: folder not found:", dir);
+    return;
+  }
 
- Object.keys(newHash).forEach(file=>{
+  const files = getAllFiles(dir);
 
-  const parts=file.split("/");
+  files.forEach(full => {
+    try {
+      const hash = md5(full);
 
-  result[parts[0]].push(file);
+      // Key là relative path từ garden_horizons, dùng forward slash
+      const key = path.relative(BASE, full).split(path.sep).join("/");
 
- });
+      newHash[key] = hash;
 
- fs.writeFileSync("images.json",JSON.stringify(result,null,2));
+      if (oldHash[key] !== hash) {
+        uploadList.push({ full, key });
+      }
+    } catch (e) {
+      console.error("Error hashing file:", full, e.message);
+    }
+  });
+});
 
+// Tìm file đã bị xóa
+Object.keys(oldHash).forEach(file => {
+  if (!newHash[file]) {
+    deleteList.push(file);
+  }
+});
+
+async function run() {
+  console.log("Upload:", uploadList.length, "file(s)");
+  console.log("Delete:", deleteList.length, "file(s)");
+
+  // Xóa file đã bị remove
+  for (const file of deleteList) {
+    try {
+      await axios.post(API + "/delete?file=" + encodeURIComponent(file));
+      console.log("Deleted:", file);
+    } catch (e) {
+      console.error("Failed to delete:", file, e.message);
+    }
+  }
+
+  // Upload file mới hoặc đã thay đổi
+  if (uploadList.length > 0) {
+    const form = new FormData();
+
+    uploadList.forEach(({ full, key }) => {
+      // Append với key làm filename để giữ folder structure (gear/img.png)
+      form.append("files", fs.createReadStream(full), key);
+    });
+
+    try {
+      await axios.post(API + "/upload", form, {
+        headers: form.getHeaders(),
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+      console.log("Uploaded", uploadList.length, "file(s)");
+    } catch (e) {
+      console.error("Upload failed:", e.message);
+      // Không ghi hash nếu upload lỗi
+      return;
+    }
+  }
+
+  // Chỉ ghi hash sau khi sync thành công
+  fs.writeFileSync(HASH_FILE, JSON.stringify(newHash, null, 2));
+
+  generateJSON();
+
+  console.log("Sync done!");
+}
+
+function generateJSON() {
+  const result = {};
+
+  folders.forEach(folder => {
+    result[folder] = [];
+  });
+
+  Object.keys(newHash).forEach(file => {
+    const parts = file.split("/");
+    const folder = parts[0];
+    if (result[folder] !== undefined) {
+      result[folder].push(file);
+    }
+  });
+
+  fs.writeFileSync("images.json", JSON.stringify(result, null, 2));
+  console.log("Generated images.json");
 }
 
 run();
