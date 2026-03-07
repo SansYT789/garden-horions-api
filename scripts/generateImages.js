@@ -3,39 +3,74 @@ const path = require("path")
 
 const ASSET_DIR = path.resolve(__dirname, "../assets")
 const CACHE_DIR = path.resolve(__dirname, "../cache")
-const OUTPUT = path.join(CACHE_DIR, "images.json")
+const OUTPUT    = path.join(CACHE_DIR, "images.json")
 
-function scan(dir) {
-    if (!fs.existsSync(dir)) {
-        console.error(`Asset directory not found: ${dir}`)
-        process.exit(1)
-    }
+const SUPPORTED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"])
 
-    let results = {}
+function scan(baseDir, dir = baseDir, results = {}) {
+  let entries
 
-    const entries = fs.readdirSync(dir)
-
-    entries.forEach(folder => {
-        const folderPath = path.join(dir, folder)
-
-        if (fs.statSync(folderPath).isDirectory()) {
-            results[folder] = fs.readdirSync(folderPath).filter(file => {
-                // Only include files, skip nested dirs
-                return fs.statSync(path.join(folderPath, file)).isFile()
-            })
-        }
-    })
-
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch (err) {
+    console.warn(`[warn] Cannot read directory: ${dir} — ${err.message}`)
     return results
+  }
+
+  const images = []
+  const subdirs = []
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue // skip hidden files/dirs
+
+    if (entry.isDirectory()) {
+      subdirs.push(path.join(dir, entry.name))
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase()
+      if (SUPPORTED_EXTENSIONS.has(ext)) {
+        images.push(entry.name)
+      }
+    }
+  }
+
+  if (images.length > 0) {
+    const relFolder = path.relative(baseDir, dir) || "."
+    results[relFolder] = images.sort((a, b) => a.localeCompare(b))
+  }
+
+  for (const subdir of subdirs) {
+    scan(baseDir, subdir, results)
+  }
+
+  return results
 }
 
-// Ensure cache directory exists before writing
-if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true })
+if (!fs.existsSync(ASSET_DIR)) {
+  console.error(`[error] Asset directory not found: ${ASSET_DIR}`)
+  process.exit(1)
 }
+
+fs.mkdirSync(CACHE_DIR, { recursive: true })
+
+console.log(`[scan] Scanning: ${ASSET_DIR}`)
+const started = Date.now()
 
 const data = scan(ASSET_DIR)
 
-fs.writeFileSync(OUTPUT, JSON.stringify(data, null, 2))
+const totalFiles  = Object.values(data).reduce((n, files) => n + files.length, 0)
+const totalFolders = Object.keys(data).length
 
-console.log(`images.json generated with ${Object.keys(data).length} folder(s):`, Object.keys(data))
+const tmpOutput = OUTPUT + ".tmp"
+fs.writeFileSync(tmpOutput, JSON.stringify(data, null, 2), "utf8")
+fs.renameSync(tmpOutput, OUTPUT)
+
+const elapsed = Date.now() - started
+
+console.log(`[scan] Done in ${elapsed}ms — ${totalFolders} folder(s), ${totalFiles} image(s)`)
+console.log(`[scan] Output: ${OUTPUT}`)
+
+if (totalFolders > 0) {
+  for (const [folder, files] of Object.entries(data)) {
+    console.log(`       ${folder}/  (${files.length} image${files.length !== 1 ? "s" : ""})`)
+  }
+}
